@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>同词相遇｜双人联机版</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif;}
+body{background:#f7f8fc;padding:20px;max-width:600px;margin:0 auto;}
+.card{background:#fff;border-radius:18px;padding:24px;box-shadow:0 4px 16px #00000012;}
+h1{text-align:center;color:#333;font-size:24px;margin-bottom:6px;}
+.tip{text-align:center;color:#777;font-size:14px;margin-bottom:20px;}
+.room-box{background:#f4f5f9;padding:14px;border-radius:12px;margin-bottom:20px;}
+#roomCode{font-size:24px;font-weight:bold;color:#7b61ff;letter-spacing:4px;text-align:center;margin:8px 0;}
+.ctrl-row{display:flex;gap:10px;margin-bottom:16px;}
+input{flex:1;padding:12px 14px;border:1px solid #ddd;border-radius:10px;font-size:16px;outline:none;}
+input:focus{border-color:#7b61ff;}
+button{padding:12px 16px;border:none;border-radius:10px;font-size:15px;cursor:pointer;font-weight:500;}
+.btn-purple{background:#7b61ff;color:#fff;}
+.btn-gray{background:#eee;color:#333;}
+.status{padding:10px 12px;border-radius:10px;margin-bottom:16px;font-size:14px;}
+.wait{background:#f8f8f8;color:#555;}
+.ok{background:#e8f7f0;color:#279e68;}
+.player-area{margin-top:16px;display:none;}
+.label{font-size:15px;color:#444;margin-bottom:6px;display:block;}
+#myWord{width:100%;}
+.action-bar{display:flex;gap:10px;margin-top:16px;}
+.result{margin-top:20px;padding:18px;border-radius:14px;text-align:center;font-size:18px;font-weight:500;display:none;}
+.success{background:#e8f7f0;color:#279e68;}
+.fail{background:#fff1f1;color:#d64545;}
+.log{margin-top:18px;font-size:14px;color:#666;max-height:180px;overflow-y:auto;}
+.log-item{padding:5px 0;border-bottom:1px solid #eee;}
+</style>
+</head>
+<body>
+<div class="card">
+    <h1>同词相遇 · 联机版</h1>
+    <div class="tip">一人创建房间，一人输入房间码加入，两台手机实时同步</div>
+
+    <div id="connectArea">
+        <div class="ctrl-row">
+            <button id="createBtn" class="btn-purple">🪄 创建房间</button>
+        </div>
+        <div class="room-box">
+            <div>输入房间码加入</div>
+            <div class="ctrl-row">
+                <input id="joinCode" placeholder="4位房间码">
+                <button id="joinBtn" class="btn-gray">加入房间</button>
+            </div>
+            <div id="roomCode"></div>
+        </div>
+        <div id="statusBox" class="status wait">等待操作...</div>
+    </div>
+
+    <div id="gameArea" class="player-area">
+        <div class="label">你的词语</div>
+        <input id="myWord" placeholder="悄悄输入你想到的词，对方看不到">
+        <div class="action-bar">
+            <button id="submitBtn" class="btn-purple">提交词语</button>
+            <button id="nextBtn" class="btn-gray">下一轮</button>
+        </div>
+        <div id="resultBox" class="result"></div>
+        <div class="log" id="logBox">📜对局记录</div>
+    </div>
+</div>
+
+<script>
+const peer = new Peer();
+let conn = null;
+let isHost = false;
+let roomId = "";
+let myWord = "";
+let remoteWord = "";
+let round = 1;
+
+const connectArea = document.getElementById("connectArea");
+const gameArea = document.getElementById("gameArea");
+const statusBox = document.getElementById("statusBox");
+const roomCodeDom = document.getElementById("roomCode");
+const createBtn = document.getElementById("createBtn");
+const joinBtn = document.getElementById("joinBtn");
+const joinCodeInput = document.getElementById("joinCode");
+const myWordInput = document.getElementById("myWord");
+const submitBtn = document.getElementById("submitBtn");
+const nextBtn = document.getElementById("nextBtn");
+const resultBox = document.getElementById("resultBox");
+const logBox = document.getElementById("logBox");
+
+function showStatus(text){
+    statusBox.innerText = text;
+}
+function showGame(){
+    connectArea.style.display = "none";
+    gameArea.style.display = "block";
+}
+function resetRound(){
+    myWord = ""; remoteWord = "";
+    myWordInput.value = "";
+    resultBox.style.display = "none";
+    submitBtn.disabled = false;
+}
+
+peer.on("open", (id)=>{
+    createBtn.onclick = ()=>{
+        isHost = true;
+        roomId = id.slice(0,4);
+        roomCodeDom.innerText = "你的房间码："+roomId;
+        showStatus("房间已创建，等待好友加入...");
+    }
+})
+
+peer.on("connection", (c)=>{
+    conn = c;
+    bindConn();
+    showStatus("✅ 好友加入！");
+    setTimeout(showGame,600);
+})
+
+joinBtn.onclick = ()=>{
+    const code = joinCodeInput.value.trim();
+    if(code.length!==4) return showStatus("请输入4位房间码");
+    showStatus("正在连接...");
+    conn = peer.connect(code);
+    bindConn();
+}
+
+function bindConn(){
+    conn.on("open", ()=>{
+        showStatus("✅ 连接成功！");
+        setTimeout(showGame,600);
+    })
+    conn.on("data", (data)=>{
+        if(data.type === "word"){
+            remoteWord = data.content;
+            checkMatch();
+        }else if(data.type === "next"){
+            round = data.round;
+            resetRound();
+        }
+    })
+    conn.on("close", ()=>{
+        showStatus("❌ 连接断开，请重新建房");
+    })
+    conn.on("error", (err)=>{
+        showStatus("连接失败："+err.type);
+    })
+}
+
+submitBtn.onclick = ()=>{
+    const w = myWordInput.value.trim();
+    if(!w) return;
+    myWord = w;
+    submitBtn.disabled = true;
+    conn.send({type:"word", content:w});
+    checkMatch();
+}
+
+function checkMatch(){
+    if(myWord && remoteWord){
+        resultBox.style.display = "block";
+        if(myWord === remoteWord){
+            resultBox.className = "result success";
+            resultBox.innerText = "🎉 同词相遇！默契满分！";
+        }else{
+            resultBox.className = "result fail";
+            resultBox.innerText = `💨 没有相遇：你【${myWord}】｜对方【${remoteWord}】`;
+        }
+        const logItem = document.createElement("div");
+        logItem.className="log-item";
+        logItem.innerText=`第${round}轮｜你：${myWord}｜对方：${remoteWord} ${myWord===remoteWord?"✅":"❌"}`;
+        logBox.appendChild(logItem);
+    }
+}
+
+nextBtn.onclick = ()=>{
+    round++;
+    conn.send({type:"next", round:round});
+    resetRound();
+}
+</script>
+</body>
+</html>
